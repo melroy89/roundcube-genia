@@ -1179,6 +1179,7 @@ class lifeprisma_ai extends rcube_plugin
             $cached = $this->cache_get($cache_key);
             if ($cached !== null) {
                 $this->ai_log("[EMAIL ANALYSIS] CACHE HIT key=$cache_key");
+                $cached['cached'] = true;
                 echo json_encode($cached);
                 exit;
             }
