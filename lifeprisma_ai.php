@@ -760,6 +760,12 @@ class lifeprisma_ai extends rcube_plugin
         }
     }
 
+    private function cache_user_prefix()
+    {
+        $user = rcmail::get_instance()->user;
+        return $user ? md5($user->get_username()) . ':' : '';
+    }
+
     private function cache_get($key)
     {
         $r = $this->redis_connect();
@@ -824,7 +830,7 @@ class lifeprisma_ai extends rcube_plugin
         $stream_cache_key = null;
         if ($view_context === 'read' && in_array($action, $cacheable_actions)
             && !empty($msg_uid) && !empty($mbox) && empty($instruction) && empty($history)) {
-            $stream_cache_key = "stream:{$action}:{$mbox}:{$msg_uid}:{$language}:{$model}";
+            $stream_cache_key = $this->cache_user_prefix() . "stream:{$action}:{$mbox}:{$msg_uid}:{$language}:{$model}";
             $cached = $this->cache_get($stream_cache_key);
             if ($cached !== null) {
                 $this->ai_log("[STREAM CACHE HIT] action=$action key=$stream_cache_key");
@@ -1175,7 +1181,7 @@ class lifeprisma_ai extends rcube_plugin
 
         // Redis cache for detect_followup
         if ($action === 'detect_followup' && !empty($msg_uid) && !empty($mbox)) {
-            $cache_key = "fu:{$mbox}:{$msg_uid}";
+            $cache_key = $this->cache_user_prefix() . "fu:{$mbox}:{$msg_uid}";
             $cached = $this->cache_get($cache_key);
             if ($cached !== null) {
                 $this->ai_log("[EMAIL ANALYSIS] CACHE HIT key=$cache_key");
@@ -1368,7 +1374,7 @@ class lifeprisma_ai extends rcube_plugin
 
         // Cache detect_followup results in Redis (24h)
         if ($action === 'detect_followup' && !empty($msg_uid) && !empty($mbox)) {
-            $cache_key = "fu:{$mbox}:{$msg_uid}";
+            $cache_key = $this->cache_user_prefix() . "fu:{$mbox}:{$msg_uid}";
             $this->cache_set($cache_key, $response, 86400);
         }
 

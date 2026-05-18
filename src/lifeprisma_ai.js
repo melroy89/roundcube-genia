@@ -448,7 +448,7 @@ function lpai_compose_quick(action, language, clickedBtn) {
         document.body.removeChild(tempDiv);
 
         if (fullText) {
-            lpai_set_editor_content(fullText);
+            lpai_apply_with_preserve(fullText);
 
             // Show undo bar with usage info
             var undoBar = document.getElementById('lpai-undo-bar');
@@ -1056,7 +1056,7 @@ function lpai_save_as_draft() {
 
     // Apply content to editor
     lpai_undo_text = lpai_get_editor_content();
-    lpai_set_editor_content(lpai_last_result);
+    lpai_apply_with_preserve(lpai_last_result);
 
     setTimeout(function() {
         // Sync TinyMCE content to the textarea
@@ -1674,6 +1674,127 @@ function lpai_set_editor_content(text) {
     if (textarea) textarea.value = plain;
 }
 
+function lpai_get_content_tail() {
+    if (window.tinyMCE && tinyMCE.activeEditor) {
+        return lpai_get_content_tail_html();
+    }
+    return lpai_get_content_tail_plain();
+}
+
+function lpai_get_content_tail_plain() {
+    var textarea = document.getElementById('composebody') || document.querySelector('textarea[name="_message"]');
+    if (!textarea) return '';
+    var content = textarea.value;
+    if (!content) return '';
+
+    var lines = content.split('\n');
+    var tailStart = lines.length;
+
+    for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        if (line.match(/^\s*--\s*$/) || line.match(/^>/) || line.match(/^On\s+.+wrote:/)) {
+            tailStart = i;
+            break;
+        }
+    }
+
+    if (tailStart >= lines.length) return '';
+    return lines.slice(tailStart).join('\n');
+}
+
+function lpai_get_content_tail_html() {
+    var editor = tinyMCE.activeEditor;
+    var body = editor.getBody();
+    var text = editor.getContent({ format: 'text' });
+    if (!text) return '';
+
+    var lines = text.split('\n');
+    var tailStart = lines.length;
+
+    for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        if (line.match(/^\s*--\s*$/) || line.match(/^>/) || line.match(/^On\s+.+wrote:/)) {
+            tailStart = i;
+            break;
+        }
+    }
+
+    if (tailStart >= lines.length) return '';
+
+    var searchText = '';
+    for (var j = tailStart; j < lines.length; j++) {
+        var t = lines[j].trim();
+        if (t.length > 0) {
+            searchText = t.substring(0, Math.min(t.length, 50));
+            break;
+        }
+    }
+
+    if (!searchText) return '';
+
+    var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null, false);
+    var nodes = [];
+    var node;
+    while (node = walker.nextNode()) {
+        nodes.push(node);
+    }
+
+    var foundNode = null;
+    var foundOffset = 0;
+    for (var k = nodes.length - 1; k >= 0; k--) {
+        var nodeText = nodes[k].textContent;
+        var idx = nodeText.lastIndexOf(searchText);
+        if (idx >= 0) {
+            foundNode = nodes[k];
+            foundOffset = idx;
+            break;
+        }
+    }
+
+    if (!foundNode) return '';
+
+    try {
+        var range = document.createRange();
+        range.setStart(foundNode, foundOffset);
+        range.setEndAfter(body.lastChild);
+        var fragment = range.cloneContents();
+        var container = document.createElement('div');
+        container.appendChild(fragment);
+        return container.innerHTML;
+    } catch (e) {
+        return '';
+    }
+}
+
+function lpai_apply_with_preserve(text) {
+    var tail = lpai_get_content_tail();
+
+    if (window.tinyMCE && tinyMCE.activeEditor) {
+        var newHTML = lpai_md_to_html(text);
+        if (tail) {
+            newHTML += '<br><br>' + tail;
+        }
+        tinyMCE.activeEditor.setContent(newHTML);
+    } else {
+        var plain = text
+            .replace(/\*\*\*(.+?)\*\*\*/g, '$1')
+            .replace(/\*\*(.+?)\*\*/g, '$1')
+            .replace(/\*(.+?)\*/g, '$1')
+            .replace(/__(.+?)__/g, '$1')
+            .replace(/_(.+?)_/g, '$1')
+            .replace(/`(.+?)`/g, '$1')
+            .replace(/^#{1,6}\s+/gm, '')
+            .replace(/```[\s\S]*?```/g, function(m) {
+                return m.replace(/^```\w*\n?/, '').replace(/\n?```$/, '');
+            });
+        if (tail) {
+            plain += '\n\n' + tail;
+        }
+        var textarea = document.getElementById('composebody') || document.querySelector('textarea[name="_message"]');
+        if (textarea) textarea.value = plain;
+    }
+}
+
 function lpai_get_reply_text() {
     // Try to get just the message content, not the full #messagebody container
     var msgBody = document.querySelector('#messagebody .message-part, #messagebody .message-htmlpart');
@@ -1839,7 +1960,7 @@ function lpai_submit() {
                         var sp = rcmail.env.lpai_user_prefs || {};
                         if (sp.auto_draft && rcmail.env.action === 'compose' && ['summarize', 'scam', 'suggest_subject', 'thread_summarize'].indexOf(lpai_current_action) < 0) {
                             lpai_undo_text = lpai_get_editor_content();
-                            lpai_set_editor_content(fullText);
+                            lpai_apply_with_preserve(fullText);
                             var editor = window.tinyMCE && tinyMCE.activeEditor;
                             if (editor) editor.save();
                             rcmail.cmp_hash = null;
@@ -2006,7 +2127,7 @@ function lpai_apply_result() {
 
             if (editor && window.lpai_pending_apply) {
                 setTimeout(function() {
-                    lpai_set_editor_content(window.lpai_pending_apply);
+                    lpai_apply_with_preserve(window.lpai_pending_apply);
                     window.lpai_pending_apply = null;
                     if (rcmail.display_message) {
                         rcmail.display_message('GenIA reply applied', 'confirmation');
@@ -2029,7 +2150,7 @@ function lpai_apply_result() {
     }
 
     lpai_undo_text = lpai_get_editor_content();
-    lpai_set_editor_content(lpai_last_result);
+    lpai_apply_with_preserve(lpai_last_result);
     lpai_close_panel();
 
     var undoBar = document.getElementById('lpai-undo-bar');
